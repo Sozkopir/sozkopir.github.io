@@ -1,5 +1,5 @@
-const MODEL_CACHE = "translator-models-v1";
-const PHRASES_KEY = "translator-phrases";
+const MODEL_CACHE = "sozkopir-models-v1";
+const PHRASES_KEY = "sozkopir-phrases";
 const LANGUAGE_NAMES = { en: "English", zh: "中文" };
 const HTML_LANG = { en: "en", zh: "zh-Hans" };
 const DEFAULT_PHRASES = [

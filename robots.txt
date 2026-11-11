@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://sozkopir.github.io/sitemap.xml

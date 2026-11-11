@@ -1,6 +1,6 @@
 {
-  "name": "Altranslator",
-  "short_name": "Altranslator",
+  "name": "Sozkopir",
+  "short_name": "Sozkopir",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

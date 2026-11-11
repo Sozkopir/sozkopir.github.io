@@ -1,5 +1,5 @@
-const APP_CACHE = "translator-app-v6";
-const MODEL_CACHE = "translator-models-v1";
+const APP_CACHE = "sozkopir-app-v1";
+const MODEL_CACHE = "sozkopir-models-v1";
 const APP_FILES = [
   "./",
   "index.html",
