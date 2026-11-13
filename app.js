@@ -1,5 +1,10 @@
 const MODEL_CACHE = "sozkopir-models-v1";
 const PHRASES_KEY = "sozkopir-phrases";
+const STATS_KEY = "sozkopir-stats";
+const STATS_URL = "https://gateway.umami.is/api/send";
+const STATS_SITE = "c20a8812-67f1-4dcf-b698-f317d61dbdae";
+const STATS_HOST = "sozkopir.github.io";
+const STATS_QUEUE_MAX = 50;
 const LANGUAGE_NAMES = { en: "English", zh: "中文" };
 const HTML_LANG = { en: "en", zh: "zh-Hans" };
 const DEFAULT_PHRASES = [
@@ -72,6 +77,8 @@ let direction = "en-zh";
 let busy = false;
 let last = null;
 let phrases = loadPhrases();
+let stats = loadStats();
+let sendingStats = false;
 
 function setStatus(message, isError = false) {
   status.textContent = message;
@@ -156,6 +163,93 @@ async function removeUnusedModels() {
   for (const request of await cache.keys()) {
     if (!keep.has(request.url)) await cache.delete(request);
   }
+}
+
+// Anonymous usage numbers for Umami. Never the text people translate.
+// Events wait on the device while it is offline and go out once it is online.
+function today() {
+  return new Date().toLocaleDateString("en-CA");
+}
+
+function loadStats() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STATS_KEY));
+    if (saved?.device) return saved;
+  } catch {}
+  const device = crypto.randomUUID?.() || Math.random().toString(36).slice(2);
+  return { device, queue: [], opened: "", counts: {}, countedAt: 0 };
+}
+
+function storeStats() {
+  try {
+    localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+  } catch {}
+}
+
+function appMode() {
+  return isInstalled() ? "home-screen" : "browser";
+}
+
+function track(name, data, extra = {}) {
+  const event = { timestamp: Math.floor(Date.now() / 1000), ...extra };
+  if (name) event.name = name;
+  if (data) event.data = data;
+  stats.queue = [...stats.queue, event].slice(-STATS_QUEUE_MAX);
+  storeStats();
+  sendStats();
+}
+
+async function sendStats() {
+  if (sendingStats || location.hostname !== STATS_HOST || !navigator.onLine) return;
+  sendingStats = true;
+  try {
+    while (stats.queue.length) {
+      const payload = {
+        website: STATS_SITE,
+        hostname: STATS_HOST,
+        url: "/",
+        title: document.title,
+        language: navigator.language,
+        screen: `${screen.width}x${screen.height}`,
+        id: stats.device,
+        ...stats.queue[0],
+      };
+      const response = await fetch(STATS_URL, {
+        method: "POST",
+        keepalive: true,
+        credentials: "omit",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "event", payload }),
+      });
+      if (response.status >= 500) break;
+      stats.queue = stats.queue.slice(1);
+      storeStats();
+    }
+  } catch {
+    // No connection to Umami (offline, or blocked without a VPN). Try again later.
+  } finally {
+    sendingStats = false;
+  }
+}
+
+function countTranslation(key) {
+  stats.counts[key] = (stats.counts[key] || 0) + 1;
+  stats.countedAt = Math.floor(Date.now() / 1000);
+  storeStats();
+}
+
+function sendTranslationCounts() {
+  if (!Object.keys(stats.counts).length) return;
+  const counts = stats.counts;
+  stats.counts = {};
+  track("translations", counts, { timestamp: stats.countedAt });
+}
+
+function trackOpen() {
+  sendTranslationCounts();
+  if (stats.opened === today()) return;
+  stats.opened = today();
+  track("open", { mode: appMode() });
 }
 
 const worker = new Worker("worker/translator-worker.js");
@@ -288,9 +382,11 @@ async function translate() {
     }
     last = { text, from, to, translation, pinyin: to === "zh" ? pinyinFor(translation) : "" };
     setStatus("");
+    countTranslation(key);
   } catch (error) {
     last = null;
     setStatus(error.message, true);
+    track("error", { where: "translate" });
   } finally {
     busy = false;
     $("translate").disabled = false;
@@ -396,6 +492,7 @@ async function openTranslator() {
   renderDirection();
   renderPhrases();
   show("translator");
+  trackOpen();
   startEngine().catch((error) => setStatus(error.message, true));
   await navigator.storage?.persist?.();
   await navigator.serviceWorker?.ready;
@@ -416,12 +513,14 @@ async function start() {
       saveFiles(files).catch(() => {});
     } else {
       await downloadModels(files);
+      track("installed", { mode: appMode() });
     }
     await openTranslator();
   } catch (error) {
     show("download");
     $("download-status").textContent = `${error.message}. Check your internet connection.`;
     $("retry").hidden = false;
+    track("error", { where: "download" });
   }
 }
 
@@ -434,12 +533,19 @@ input.addEventListener("keydown", (event) => {
 $("translate").addEventListener("click", translate);
 $("swap").addEventListener("click", swapDirection);
 $("retry").addEventListener("click", start);
-$("continue").addEventListener("click", start);
+$("continue").addEventListener("click", () => {
+  track("try-in-browser");
+  start();
+});
 showButton.addEventListener("click", openStage);
 saveButton.addEventListener("click", savePhrase);
 stage.addEventListener("click", closeStage);
 window.addEventListener("resize", () => {
   if (!stage.hidden) fitStage();
+});
+window.addEventListener("online", sendStats);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") sendTranslationCounts();
 });
 
 if (navigator.serviceWorker) {
@@ -453,5 +559,10 @@ if (navigator.serviceWorker) {
 if (isAndroid()) showAndroidSteps();
 else if (!isIOS()) showDesktopSteps();
 
-if (isInstalled()) start();
-else show("install");
+if (isInstalled()) {
+  start();
+} else {
+  show("install");
+  track(null, null, { referrer: document.referrer });
+}
+sendStats();

@@ -1,4 +1,4 @@
-const APP_CACHE = "sozkopir-app-v1";
+const APP_CACHE = "sozkopir-app-v2";
 const MODEL_CACHE = "sozkopir-models-v1";
 const APP_FILES = [
   "./",
